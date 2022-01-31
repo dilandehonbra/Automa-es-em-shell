@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+ZABBIX_USER="Admin"
+ZABBIX_PASS="zabbix"
+ZABBIX_API="http://34.130.165.75/api_jsonrpc.php"
+ZABBIX_HOST=$1
+VALUE_TAG=$2
+VALUE_TRIGGER=$3
+ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
+
+GET_HOST_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+\"jsonrpc\": \"2.0\",
+   \"method\": \"host.get\",
+    \"params\": {
+     \"output\" : [\"hostid\"],
+        \"filter\": {
+          \"host\": [
+         \"${ZABBIX_HOST}\"
+    ]
+    }
+    },
+    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+    \"id\": 1
+}" ${ZABBIX_API} | jq .result[].hostid 
+)
+
+####
+
+GET_TRIGGER_ID=$(for i in ${GET_HOST_ID[@]}
+
+	do
+
+curl -s -H  'Content-Type: application/json-rpc' -d "
+
+{
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"trigger.get\",
+    \"params\": {
+           \"output\":[
+             \"triggerid\"
+        ],
+          \"selectTags\": \"extend\",
+	   \"tags\" : [{\"tag\": \"TEMPLATE\", \"value\": \"${VALUE_TAG}\", \"operator\": 1}],
+	   \"hostids\": [
+           	${i}
+    ]
+    },
+    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+    \"id\": 1
+
+}" ${ZABBIX_API} | jq .result[].triggerid 
+
+done
+)
+
+ALTER_TRIGGER=$(for j in ${GET_TRIGGER_ID[@]}
+
+do
+
+curl -s -H  'Content-Type: application/json-rpc' -d "
+
+{
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"trigger.update\",
+    \"params\": {
+        \"triggerid\": ${j},
+        \"status\": ${VALUE_TRIGGER}
+    },
+    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+    \"id\": 1
+}" ${ZABBIX_API} | jq .result.triggerids[] 
+done
+)
+
+
+awk '{print $1}' <<< "${GET_TRIGGER_ID}" >> input_ids.txt
+awk '{print $1}' <<< "${ALTER_TRIGGER}"  >> output_ids.txt
+
+
+awk  'BEGIN {print "#####Logfail#####"} {print $0}' <<< "$(diff input_ids.txt output_ids.txt | awk '/^[<>]/' | sed 's/[<>] //g')"
