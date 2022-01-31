@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ZABBIX_USER="Admin"
-ZABBIX_PASS="zabbix" 
-ZABBIX_API="http//192.168.0.1/api_jsonrpc.php" ############IP##############
+ZABBIX_PASS="zabbix"
+ZABBIX_API="http://34.130.165.75/api_jsonrpc.php"
 ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
 
 #######################################################################################################################################################################################################################################
@@ -18,7 +18,7 @@ GET_TRIGGER_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
       \"selectTriggers\" : \"extend\",
         \"filter\": {
           \"host\": [
-           \"DILAN SEVERINO\"           #########HOSTNAME###########
+           \"DILAN SEVERINO\"
     ]
     }
     },
@@ -28,14 +28,12 @@ GET_TRIGGER_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
 }" ${ZABBIX_API}  | jq | grep -E "\"triggerid.:|\"status.:" | awk -F"\"" '{print $4"="}' | xargs -n2 -d'\n' | sed 's/=/ =/g' | sed 's/ =$//g')
 
 #######################################################################################################################################################################################################################################
-
 GET_ALL_TAGS=$(for i in ${GET_TRIGGER_ID[@]}
 
     do
 
         TRATAMENTO_ID=$(echo ${i} | awk '{print $1}')
         TRATAMENTO_STATUS=$(echo ${i} | awk '{print $3}')
-echo $TRATAMENTO_STATUS
 curl -s -H  'Content-Type: application/json-rpc' -d "
 {
     \"jsonrpc\": \"2.0\",
@@ -52,15 +50,14 @@ curl -s -H  'Content-Type: application/json-rpc' -d "
     },
     \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
     \"id\": 1
-#############GREP ("ATIVO"=MINHA TAG VALUE) ALTERAR CHAVE #############
 }" ${ZABBIX_API} | jq | grep "ATIVO" -B5 | awk '/triggerid|value/' | xargs -n2 -d'\n'|  awk -F"\"" '{print $4"="$8}' | sed '/^=/d'| awk -v VARSTAT=${TRATAMENTO_STATUS} -F"=" '{print $1,$2,VARSTAT}'
 
 done)
 
 awk 'BEGIN{print "TriggerID\tTagValue\tTriggerState"} ; {print "NÂº"NR":",$1"\t"$2"\t\t"$3}' <<< ${GET_ALL_TAGS} > info.txt
 
-
 #######################################################################################################################################################################################################################################
+
 ARRAY_TRIGGER_UPDATE=$GET_ALL_TAGS
 
 for k in ${ARRAY_TRIGGER_UPDATE[@]}
@@ -68,7 +65,7 @@ for k in ${ARRAY_TRIGGER_UPDATE[@]}
 do
 
     TRATAMENTO_UPDATE_STATUS=$(echo ${k}|awk ' {print $1}' )
-    TRATAMENTO_UPDATE_TRIGGERID=$(echo ${k}|awk ' {print $3}' | sed 's/1$/2/g' | sed 's/0$/1/g' | sed 's/2$/0/g')
+    TRATAMENTO_UPDATE_TRIGGERID=$(echo ${k}|awk ' {print $3}' | sed 's/1$/2/g' | sed 's/0$/1/g' | sed 's/2$/0/g' )
 curl -s -H  'Content-Type: application/json-rpc' -d "
 {
     \"jsonrpc\": \"2.0\",
@@ -80,17 +77,7 @@ curl -s -H  'Content-Type: application/json-rpc' -d "
     \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
     \"id\": 1
 
-}" ${ZABBIX_API} | jq  >> trigger_change.json
-
-done
-
-TRIGGER_CHANGED=$(grep -E "\"[0-9]+.\"" trigger_change.json | sed 's/^[[:space:]]*//g')
-
-for d in ${TRIGGER_CHANGED[@]}
-
-do
-
-echo "Trigger ID:${d} has ben changed"
+}" ${ZABBIX_API} >> triggers_change.json
 
 done
 
