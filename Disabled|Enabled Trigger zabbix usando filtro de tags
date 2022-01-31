@@ -2,83 +2,106 @@
 ZABBIX_USER="Admin"
 ZABBIX_PASS="zabbix"
 ZABBIX_API="http://34.130.165.75/api_jsonrpc.php"
+ZABBIX_HOST=$1
+NAME_TAG=$2
+VALUE_TAG=$3
+VALUE_TRIGGER_NAME=$4
 ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
+VALUE_TRIGGER=$(echo $VALUE_TRIGGER_NAME | grep -i "enabled" &> /dev/null && echo 0 || echo 1)
 
-#######################################################################################################################################################################################################################################
+VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "(Enabled|Disabled)" &> /dev/null ; echo $? )
 
-    old_IFS=$IFS
-                IFS=$'\n'
-GET_TRIGGER_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
-{
-\"jsonrpc\": \"2.0\",
-   \"method\": \"host.get\",
-    \"params\": {
-     \"output\" : [\"hostid\"],
+    if [ $VALUE_TRIGGER_TEST -ne 0 ]
+    	then
+    echo "Terceiro parametro Enabled/Disabled!"
+    exit 1
+    	else
 
-      \"selectTriggers\" : \"extend\",
-        \"filter\": {
-          \"host\": [
-           \"DILAN SEVERINO\"
-    ]
-    }
-    },
-    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
-    \"id\": 1
+    GET_HOST_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
 
-}" ${ZABBIX_API}  | jq | grep -E "\"triggerid.:|\"status.:" | awk -F"\"" '{print $4"="}' | xargs -n2 -d'\n' | sed 's/=/ =/g' | sed 's/ =$//g')
-
-#######################################################################################################################################################################################################################################
-GET_ALL_TAGS=$(for i in ${GET_TRIGGER_ID[@]}
-
-    do
-
-        TRATAMENTO_ID=$(echo ${i} | awk '{print $1}')
-        TRATAMENTO_STATUS=$(echo ${i} | awk '{print $3}')
-curl -s -H  'Content-Type: application/json-rpc' -d "
-{
+    {
     \"jsonrpc\": \"2.0\",
-    \"method\": \"trigger.get\",
-    \"params\": {
-           \"output\": [
-            \"triggerid\",
-            \"description\"
-        ],
-        \"selectTags\": \"extend\",
-        \"triggerids\": [
-            \"${TRATAMENTO_ID}\"
-    ]
-    },
-    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
-    \"id\": 1
-}" ${ZABBIX_API} | jq | grep "ATIVO" -B5 | awk '/triggerid|value/' | xargs -n2 -d'\n'|  awk -F"\"" '{print $4"="$8}' | sed '/^=/d'| awk -v VARSTAT=${TRATAMENTO_STATUS} -F"=" '{print $1,$2,VARSTAT}'
+       \"method\": \"host.get\",
+        \"params\": {
+         \"output\" : [\"hostid\"],
+            \"filter\": {
+              \"host\": [
+             \"${ZABBIX_HOST}\"
+        ]
+        }
+        },
+        \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+        \"id\": 1
+    }" ${ZABBIX_API} | jq .result[].hostid
+    )
+    ####
 
-done)
+    if [ -z $GET_HOST_ID  ]
 
-awk 'BEGIN{print "TriggerID\tTagValue\tTriggerState"} ; {print "NÂº"NR":",$1"\t"$2"\t\t"$3}' <<< ${GET_ALL_TAGS} > info.txt
+    	then
+    echo "Host $ZABBIX_HOST nao existe!!!"
 
-#######################################################################################################################################################################################################################################
+    exit 1
 
-ARRAY_TRIGGER_UPDATE=$GET_ALL_TAGS
+    	else
 
-for k in ${ARRAY_TRIGGER_UPDATE[@]}
+    ###
+    GET_TRIGGER_ID=$(
+    curl -s -H  'Content-Type: application/json-rpc' -d "
 
-do
+    {
+        \"jsonrpc\": \"2.0\",
+        \"method\": \"trigger.get\",
+        \"params\": {
+               \"output\":[
+                 \"triggerid\"
+            ],
+              \"selectTags\": \"extend\",
+    	   \"tags\" : [{\"tag\": \"${NAME_TAG}\", \"value\": \"${VALUE_TAG}\", \"operator\": 1}],
+    	   \"hostids\": [
+               	${GET_HOST_ID}
+        ]
+        },
+        \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+        \"id\": 1
 
-    TRATAMENTO_UPDATE_STATUS=$(echo ${k}|awk ' {print $1}' )
-    TRATAMENTO_UPDATE_TRIGGERID=$(echo ${k}|awk ' {print $3}' | sed 's/1$/2/g' | sed 's/0$/1/g' | sed 's/2$/0/g' )
-curl -s -H  'Content-Type: application/json-rpc' -d "
-{
-    \"jsonrpc\": \"2.0\",
-    \"method\": \"trigger.update\",
-    \"params\": {
-        \"triggerid\": \"${TRATAMENTO_UPDATE_STATUS}\",
-        \"status\": ${TRATAMENTO_UPDATE_TRIGGERID}
-    },
-    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
-    \"id\": 1
+    }" ${ZABBIX_API} | jq .result[].triggerid 
+    )
 
-}" ${ZABBIX_API} >> triggers_change.json
+    if [ $(echo ${GET_TRIGGER_ID} | wc -c) -le 1 ]
 
-done
+            then
+    echo "Host $ZABBIX_HOST existe, nao ha triggers para a tag ${NAME_TAG} valor  ${VALUE_TAG}!!!"
 
-IFS=${old_IFS}
+    exit 1
+
+            else
+
+
+
+    for j in ${GET_TRIGGER_ID[@]}
+
+    	do
+
+    echo -n "${VALUE_TRIGGER_NAME} : TriggerID :"
+
+    curl -s -H  'Content-Type: application/json-rpc' -d "
+
+    {
+        \"jsonrpc\": \"2.0\",
+        \"method\": \"trigger.update\",
+        \"params\": {
+         \"triggerid\": ${j},
+            \"status\": ${VALUE_TRIGGER}
+        },
+        \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+        \"id\": 1
+    }" ${ZABBIX_API} | jq .result.triggerids[] 
+
+    done
+
+    fi
+
+    fi
+
+    fi
