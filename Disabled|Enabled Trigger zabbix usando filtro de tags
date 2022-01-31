@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ZABBIX_USER="Admin"
 ZABBIX_PASS="zabbix"
-ZABBIX_API="http://34.130.165.75/api_jsonrpc.php"
+ZABBIX_API="http://#########IP###########/api_jsonrpc.php"
 ZABBIX_HOST=$1
 NAME_TAG=$2
 VALUE_TAG=$3
