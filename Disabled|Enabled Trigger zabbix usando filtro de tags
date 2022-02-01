@@ -1,24 +1,39 @@
 #!/usr/bin/env bash
+#Parametros ajustaveis
 ZABBIX_USER="Admin"
 ZABBIX_PASS="zabbix"
-ZABBIX_API="http://#########IP###########/api_jsonrpc.php"
+ZABBIX_API="http://34.130.165.75/api_jsonrpc.php"
+TRIGGER_LOG="trigger_update.log"
+ALTER_TAG_LOG="altertag.log"
+#####################
 ZABBIX_HOST=$1
 NAME_TAG=$2
 VALUE_TAG=$3
 VALUE_TRIGGER_NAME=$4
+#
 ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
+#
 VALUE_TRIGGER=$(echo $VALUE_TRIGGER_NAME | grep -i "enabled" &> /dev/null && echo 0 || echo 1)
+#
+VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "^(Enabled|Disabled)$" &> /dev/null ; echo $? )
+##Arquivo de log###
 
-VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "(Enabled|Disabled)" &> /dev/null ; echo $? )
+gera_log (){
 
-    if [ $VALUE_TRIGGER_TEST -ne 0 ]
+	echo -e "${ZABBIX_HOST},${NAME_TAG},${VALUE_TAG},${VALUE_TRIGGER_NAME},${MENSAGEM_SAIDA}" >> ${ALTER_TAG_LOG}
+	echo "${MENSAGEM_SAIDA}"
+}
+
+ if [ $VALUE_TRIGGER_TEST -ne 0 ]
     	then
-    echo "Terceiro parametro Enabled/Disabled!"
+
+	MENSAGEM_SAIDA=$(echo "ERRO: Quarto parametro Enabled/Disabled!!!")
+
+	gera_log
+
     exit 1
-    	else
-
+ fi
     GET_HOST_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
-
     {
     \"jsonrpc\": \"2.0\",
        \"method\": \"host.get\",
@@ -39,16 +54,16 @@ VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "(Enabled|Disabled)" &>
     if [ -z $GET_HOST_ID  ]
 
     	then
-    echo "Host $ZABBIX_HOST nao existe!!!"
+	MENSAGEM_SAIDA=$(echo "ERRO: host $ZABBIX_HOST nao existe!!!")
 
-    exit 1
+	gera_log
 
-    	else
+   exit 1
 
+	fi
     ###
     GET_TRIGGER_ID=$(
     curl -s -H  'Content-Type: application/json-rpc' -d "
-
     {
         \"jsonrpc\": \"2.0\",
         \"method\": \"trigger.get\",
@@ -64,19 +79,19 @@ VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "(Enabled|Disabled)" &>
         },
         \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
         \"id\": 1
-
-    }" ${ZABBIX_API} | jq .result[].triggerid 
+    }" ${ZABBIX_API} | jq .result[].triggerid
     )
 
     if [ $(echo ${GET_TRIGGER_ID} | wc -c) -le 1 ]
 
             then
-    echo "Host $ZABBIX_HOST existe, nao ha triggers para a tag ${NAME_TAG} valor  ${VALUE_TAG}!!!"
+	MENSAGEM_SAIDA=$(echo "ERRO: host $ZABBIX_HOST existe, nao ha triggers para a tag ${NAME_TAG} valor  ${VALUE_TAG}!!!")
 
-    exit 1
+	gera_log
 
-            else
+	exit 1
 
+	fi
 
 
     for j in ${GET_TRIGGER_ID[@]}
@@ -86,7 +101,6 @@ VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "(Enabled|Disabled)" &>
     echo -n "${VALUE_TRIGGER_NAME} : TriggerID :"
 
     curl -s -H  'Content-Type: application/json-rpc' -d "
-
     {
         \"jsonrpc\": \"2.0\",
         \"method\": \"trigger.update\",
@@ -96,12 +110,9 @@ VALUE_TRIGGER_TEST=$(echo $VALUE_TRIGGER_NAME | grep -iE "(Enabled|Disabled)" &>
         },
         \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
         \"id\": 1
-    }" ${ZABBIX_API} | jq .result.triggerids[] 
+    }" ${ZABBIX_API} >> ${TRIGGER_LOG}
+
+	MENSAGEM_SAIDA=${j}
+	gera_log
 
     done
-
-    fi
-
-    fi
-
-    fi
