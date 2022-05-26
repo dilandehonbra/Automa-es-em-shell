@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-ZABBIX_USER="SuperUserDo" #change
-ZABBIX_PASS="ls32bits"  #change
-ZABBIX_API="http://192.168.1.103/zabbix/api_jsonrpc.php"
-#HOST_ZABBIX=$1
-LISTA_TXT=$1
-ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
-
 old_IFS=$IFS
         IFS=$'\n'
 
@@ -29,7 +21,7 @@ GET_HOST_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
 }" ${ZABBIX_API} | jq .result[].hostid | sed 's/\"//g' ) ;
 
 
-        for i in $(cat ${LISTA_TXT} | sort  | uniq | grep $k | sort -rn | awk 'NR==1{print $0}')
+        for i in $(grep $k ${LISTA_TXT} | sort  | uniq | sort -rn | awk 'NR==1{print $0}')
 
                 do
 
@@ -37,13 +29,15 @@ HOST_LISTA=$(echo $i | awk '{print $2}')
 COR_TEMPLATE=$(echo $i | awk '{print $1}')
 ID_TEMPLATE=$(echo $i | awk '{print $3}')
 
-  if [ $COR_TEMPLATE -eq 1 ]
 
-        then exit 1
+if [ -z ${GET_HOST_ID} ]
 
-                else
+        then echo -e "\"Host:\t${HOST_LISTA}:\tnao encontrado\"" | tee -a logs.jayquill
 
-GERA_LOG_LINKA_TEMPLATE=$(curl -s -H 'Content-Type: application/json-rpc' -d "
+else
+
+
+curl -s -H 'Content-Type: application/json-rpc' -d "
 
 {
     \"jsonrpc\": \"2.0\",
@@ -62,20 +56,12 @@ GERA_LOG_LINKA_TEMPLATE=$(curl -s -H 'Content-Type: application/json-rpc' -d "
     },
     \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
     \"id\": 1
-}" ${ZABBIX_API} | jq )
+}" ${ZABBIX_API} |jq .result[][] | sed "s/^\"/\"Host:\t${HOST_LISTA}:\t/g" | egrep -vi "error.*"| tee -a logs.jayquill
 
-                if grep -i "error" <<< $(echo -e ${GERA_LOG_LINKA_TEMPLATE} )
-
-        then echo -e "\"Host:\t${HOST_LISTA}:\tnao encontrado\"" | tee -a logs.jayquill
-
-                else
-
-echo -e ${GERA_LOG_LINKA_TEMPLATE} | jq .result[][] | sed "s/^\"/\"Host:\t${HOST_LISTA}:\t/g" | egrep -vi "error.*"| tee -a logs.jayquill
 
 fi
-  fi
-
-        done
 
 done
+
+        done
 IFS=${old_IFS}
