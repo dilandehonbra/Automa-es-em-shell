@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-REG_FILE=$1
-HOST_IP=$2
-VAR=$(zabbix_get -s ${HOST_IP} -k "vfs.dir.get[C:\Users\dilan\WIN_PC,\"${REG_FILE}\"]"  | jq . | sed 's/,$//g' | awk -F":" 'BEGIN {print "\{\"data\":\["}/\"pathname\":/{print "\{\"\{#LOGFILE\}\":"$2":"$3"\},"}' 2> /dev/null)
+HOST_IP=$1
+DIR_GET=$2
+REG_FILE=$3
+VAR=$(zabbix_get -s ${HOST_IP} -k "vfs.dir.get[\"${DIR_GET}\",\"${REG_FILE}\"]"  | jq . | sed 's/,$//g' | awk -F":" 'BEGIN {print "\{\"data\":\["}/\"pathname\":/{print "\{\"\{#LOGFILE\}\":"$2":"$3"\},"}' 2> /dev/null)
 echo $VAR |  sed ':a;$!N;s/\n//;ta;' | sed 's/,$/]}/g'
