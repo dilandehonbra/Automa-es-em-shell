@@ -1,0 +1,38 @@
+ZABBIX_USER="Admin"
+ZABBIX_PASS="zabbix"
+ZABBIX_API="http://192.168.1.150/zabbix/api_jsonrpc.php"
+ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
+
+
+old_IFS=$IFS
+        IFS=$'\n'
+
+        for i in $(cat $1)
+
+                do
+
+        GET_ALL=$(
+curl -s -H  'Content-Type: application/json-rpc' -d "
+{\"jsonrpc\": \"2.0\",\"method\": \"host.get\",\"params\": {\"output\" : [\"hostid\"], \"selectTriggers\": \"extend\", \"search\": {\"host\": [\"${i}\"]}, \"searchWildcardsEnabled\": 1 }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+}" ${ZABBIX_API} | jq .result | egrep -i "unavailable.*icmp" -B4 | awk -F"\"" '/triggerid/{print "\""$4"\""}')
+
+                for j in $(echo -ne "${GET_ALL}")
+
+                        do
+
+TRIGGER_ALL=$(curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"trigger.update\",
+    \"params\": {
+        \"triggerid\": ${j},
+        \"status\": ${2}
+    },
+    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+    \"id\": 1
+}" ${ZABBIX_API} | jq .result | awk '/\"[0-9]{2,}\"/{print $1}')
+                        echo -e "Host_Name:${i}\tTrigger_ID:${TRIGGER_ALL}\tStatus_Trigger=${2}"
+
+        done
+                done
+IFS=${old_IFS}
