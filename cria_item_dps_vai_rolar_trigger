@@ -1,0 +1,141 @@
+
+ZABBIX_USER="Admin"
+ZABBIX_PASS="zabbix"
+ZABBIX_API="http://192.168.1.150/zabbix/api_jsonrpc.php"
+ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
+
+
+        ##### Editaveis #####
+        GROUP_NAME="Templates-bararabiriri/EventViwer"
+        STANDARD_DESCR="[Zabbix] Monitoracao de eventos do windows (Eventviewer) Monitor: Verificacao de erros apresentados no eventviewer conforme regras configurada Intervalo: 10 minutos"
+        UPDATE_INTERVAL="10m"
+        ##### Editaveis #####
+
+
+
+        old_IFS=$IFS
+                IFS=$'\n'
+
+##### Consulta API para criar o grupo, se rodar novamente o script vai gerar uma mensagem de erro na tela e no arquivo de log #####
+
+        GROUP_CREATE=$(
+                curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"hostgroup.create\",
+    \"params\": {
+        \"name\": \"${GROUP_NAME}\"
+    },\"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+}" ${ZABBIX_API})
+
+if egrep -io "invalid.*param" <<<$(echo ${GROUP_CREATE}) > /dev/null
+        then
+                        echo ${GROUP_CREATE} | jq .error.data |sed 's/^/ERR GROUP: /g'|sed 's/\(\\\|\"\)//g' | tee -a log_file.txt
+                else
+                                echo ${GROUP_CREATE} | jq .result[] | awk 'NR==2{print "GROUP_ID:",$1}' | tee -a log_file.txt
+                                        echo TEMPLATE : "${GROUP_NAME} SUCCESSFULLY"
+fi
+
+##### Consulta API para criar o grupo, se rodar novamente o script vai gerar uma mensagem de erro na tela e no arquivo de log #####
+
+
+##### Busca o Group ID #####
+
+        GROUP_ID=$(
+                curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+
+\"jsonrpc\": \"2.0\", \"method\": \"hostgroup.get\", \"params\": { \"output\": \"groupids\", \"filter\": { \"name\": [\"${GROUP_NAME}\"]}},\"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+}" ${ZABBIX_API}| jq  .result[].groupid )
+
+##### Busca o Group ID #####
+
+##### Cria os templates no respectivo grupo para futura criacao de itens no template (sera executado em loop) #####
+
+for i in $(cat $1)
+
+        do
+
+TEMPLATE_NAME=$(awk -F, '{ print $1 }' <<<$(echo ${i}) )
+TAG_ZBX=$(awk -F, '{ print $2 }' <<<$(echo ${i}) )
+EVENT_TYPE=$(awk -F, '{ print $5 }' <<<$(echo ${i}) )
+
+#################################################################################################################
+
+        REGEX_EXP=$( { awk -F, '{ print $10 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
+         REGEX_EXP_FAIL=$( { awk -F, '{ if ($10=="*") print "ALL" ; else print $10 }' <<<$(  echo ${i}  ) ; } )
+
+#################################################################################################################
+
+        SEVERITY_EXP=$( { awk -F, '{ print $7 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
+         SEVERITY_EXP_FAIL=$( { awk -F, '{ if ($7=="*") print "ALL" ; else print $7 }' <<<$(  echo ${i}  ) ; } )
+
+#################################################################################################################
+
+        SOURCE_EXP=$( { awk -F, '{ print $6 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
+         SOURCE_EXP_FAIL=$( { awk -F, '{ if ($6=="*") print "ALL" ; else print $6 }' <<<$(  echo ${i}  ) ; } )
+
+#################################################################################################################
+
+       # EVENTID_EXP=$( { awk -F, '{ print $9 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
+         EVENTID_EXP=$( { awk -F, '{ if ($9=="*") print "" ; else print "^"$9"$" }' <<<$(  echo ${i}  ) ; } )
+          EVENTID_EXP_FAIL=$( { awk -F, '{ if ($9=="*") print "ALL" ; else print $9 }' <<<$(  echo ${i}  ) ; } )
+
+#################################################################################################################
+
+
+        TEMPLATE_CREATE=$(
+
+                curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+
+ \"jsonrpc\": \"2.0\", \"method\": \"template.create\", \"params\": { \"host\": \"${TEMPLATE_NAME}\", \"groups\": { \"groupid\": ${GROUP_ID} }, \"tags\": [ { \"tag\": \"TESTE_TAG\", \"value\": \"DILAN_TAG\" } ] }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+}" ${ZABBIX_API} } )
+
+
+        if egrep -io "invalid.*param" <<<$(echo ${TEMPLATE_CREATE}) > /dev/null
+
+                then
+                        echo ${TEMPLATE_CREATE} | jq .error.data |sed 's/^/ERR TEMPLATE: /g'|sed 's/\(\\\|\"\)//g' | tee -a log_file.txt
+                else
+                                echo ${TEMPLATE_CREATE} | jq .result[] | awk 'NR==2{print "TEMPLATE_ID:",$1}' | tee -a log_file.txt
+                                        echo TEMPLATE : "${TEMPLATE_NAME} SUCCESSFULLY"
+
+        fi
+
+##### Cria os templates no respectivo grupo para futura criacao de itens no template (sera executado em loop for) #####
+
+#TEMPLATE_ID
+        GET_TEMPLATE_ID=$(
+curl -s -H 'Content-Type: application/json-rpc' -d "
+{
+
+ \"jsonrpc\": \"2.0\", \"method\": \"template.get\", \"params\": { \"output\": \"templateid\", \"filter\": { \"host\": [ \"${TEMPLATE_NAME}\" ] } }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+}" ${ZABBIX_API} | jq .result[].templateid)
+
+#TEMPLATE_ID
+
+##### Cria os itens no respectivo host template X #####
+
+                ITEM_CREATE=$(curl -s -H 'Content-Type: application/json-rpc' -d "
+{
+
+\"jsonrpc\": \"2.0\", \"method\": \"item.create\", \"params\": { \"name\": \"Log:("${EVENT_TYPE}") Regex:("${REGEX_EXP_FAIL}") Severity:("${SEVERITY_EXP_FAIL}") Application:("${SOURCE_EXP_FAIL}") EventID:("${EVENTID_EXP_FAIL}")\", \"key_\": \"eventlog["${EVENT_TYPE}",${REGEX_EXP},"${SEVERITY_EXP}","${SOURCE_EXP}","${EVENTID_EXP}",{\$EVENTVIEWER_MAXLINES},skip]\", \"description\": \""${STANDARD_DESCR}"\", \"hostid\": "${GET_TEMPLATE_ID}", \"type\": 7 , \"value_type\": 2, \"tags\": [ { \"tag\": \"EventViewer\", \"value\": \"${TAG_ZBX}\"} ], \"delay\": \"${UPDATE_INTERVAL}\" }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+}" ${ZABBIX_API})
+
+        if egrep -io "invalid.*param" <<<$(echo ${ITEM_CREATE}) > /dev/null
+                then
+                        echo ${ITEM_CREATE} | jq .error.data |sed 's/^/ERR ITEM: /g'|sed 's/\(\\\|\"\)//g' | sed 's/exists on/exists on TEMPLATE/g' | tee -a log_file.txt
+                else
+                                echo ${ITEM_CREATE} | jq .result[] | awk 'NR==2{print "ITEM_ID:",$1}' | tee -a log_file.txt
+        fi
+
+
+
+done
+
+##### Cria os itens no respectivo host template X #####
