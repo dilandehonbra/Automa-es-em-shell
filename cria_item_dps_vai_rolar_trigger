@@ -1,4 +1,3 @@
-
 ZABBIX_USER="Admin"
 ZABBIX_PASS="zabbix"
 ZABBIX_API="http://192.168.1.150/zabbix/api_jsonrpc.php"
@@ -6,11 +5,10 @@ ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"json
 
 
         ##### Editaveis #####
-        GROUP_NAME="Templates-bararabiriri/EventViwer"
+        GROUP_NAME="Templates-/EventViwer"
         STANDARD_DESCR="[Zabbix] Monitoracao de eventos do windows (Eventviewer) Monitor: Verificacao de erros apresentados no eventviewer conforme regras configurada Intervalo: 10 minutos"
         UPDATE_INTERVAL="10m"
         ##### Editaveis #####
-
 
 
         old_IFS=$IFS
@@ -18,8 +16,7 @@ ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"json
 
 ##### Consulta API para criar o grupo, se rodar novamente o script vai gerar uma mensagem de erro na tela e no arquivo de log #####
 
-        GROUP_CREATE=$(
-                curl -s -H  'Content-Type: application/json-rpc' -d "
+               GRP_LOG=$(curl -s -H  'Content-Type: application/json-rpc' -d "
 {
     \"jsonrpc\": \"2.0\",
     \"method\": \"hostgroup.create\",
@@ -28,13 +25,7 @@ ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"json
     },\"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
 }" ${ZABBIX_API})
 
-if egrep -io "invalid.*param" <<<$(echo ${GROUP_CREATE}) > /dev/null
-        then
-                        echo ${GROUP_CREATE} | jq .error.data |sed 's/^/ERR GROUP: /g'|sed 's/\(\\\|\"\)//g' | tee -a log_file.txt
-                else
-                                echo ${GROUP_CREATE} | jq .result[] | awk 'NR==2{print "GROUP_ID:",$1}' | tee -a log_file.txt
-                                        echo TEMPLATE : "${GROUP_NAME} SUCCESSFULLY"
-fi
+        if grep -i invalid <<< "$GRP_LOG" >/dev/null  ; then { grep -Eo "(Host group.*exists)" <<<$(echo -ne ${GRP_LOG} ) | tee -a log_file.txt ; } ; else echo "GROUP/OK : ${GROUP_NAME}" | tee -a log_file.txt ; fi
 
 ##### Consulta API para criar o grupo, se rodar novamente o script vai gerar uma mensagem de erro na tela e no arquivo de log #####
 
@@ -53,13 +44,17 @@ fi
 
 ##### Cria os templates no respectivo grupo para futura criacao de itens no template (sera executado em loop) #####
 
+
 for i in $(cat $1)
 
         do
 
-TEMPLATE_NAME=$(awk -F, '{ print $1 }' <<<$(echo ${i}) )
-TAG_ZBX=$(awk -F, '{ print $2 }' <<<$(echo ${i}) )
-EVENT_TYPE=$(awk -F, '{ print $5 }' <<<$(echo ${i}) )
+TEMPLATE_NAME=$(awk -F, '{ print $1}' <<<$(echo ${i} ))
+
+
+
+           TAG_ZBX=$(awk -F, '{ print $2 }' <<<$(echo ${i}) )
+        EVENT_TYPE=$(awk -F, '{ print $5 }' <<<$(echo ${i}) )
 
 #################################################################################################################
 
@@ -68,42 +63,39 @@ EVENT_TYPE=$(awk -F, '{ print $5 }' <<<$(echo ${i}) )
 
 #################################################################################################################
 
-        SEVERITY_EXP=$( { awk -F, '{ print $7 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
+              SEVERITY_EXP=$( { awk -F, '{ print $7 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
          SEVERITY_EXP_FAIL=$( { awk -F, '{ if ($7=="*") print "ALL" ; else print $7 }' <<<$(  echo ${i}  ) ; } )
 
 #################################################################################################################
 
         SOURCE_EXP=$( { awk -F, '{ print $6 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
-         SOURCE_EXP_FAIL=$( { awk -F, '{ if ($6=="*") print "ALL" ; else print $6 }' <<<$(  echo ${i}  ) ; } )
+   SOURCE_EXP_FAIL=$( { awk -F, '{ if ($6=="*") print "ALL" ; else print $6 }' <<<$(  echo ${i}  ) ; } )
 
 #################################################################################################################
 
-       # EVENTID_EXP=$( { awk -F, '{ print $9 }' <<<$(echo ${i} ) ; } | sed 's/^*$//g' )
          EVENTID_EXP=$( { awk -F, '{ if ($9=="*") print "" ; else print "^"$9"$" }' <<<$(  echo ${i}  ) ; } )
-          EVENTID_EXP_FAIL=$( { awk -F, '{ if ($9=="*") print "ALL" ; else print $9 }' <<<$(  echo ${i}  ) ; } )
+    EVENTID_EXP_FAIL=$( { awk -F, '{ if ($9=="*") print "ALL" ; else print $9 }'    <<<$(  echo ${i}  ) ; } )
 
 #################################################################################################################
 
+         ATIME_TRIGGER=$( { awk -F, '{ print $16 }' <<<$(  echo ${i}  ) ; } )
+          OPER_TRIGGER=$( { awk -F, '{ print $17 }' <<<$(  echo ${i}  ) ; } )
+         COUNT_TRIGGER=$( { awk -F, '{ print $18 }' <<<$(  echo ${i}  ) ; } )
+         DESCR_TRIGGER=$( { awk -F, '{ print $4  }' <<<$(  echo ${i}  ) ; } )
+        CATEGORY_DESCR=$( { awk -F, '{ if ($8=="*") print "ALL" ; else print $8 }' <<<$(  echo ${i}  ) ; } )
+       COMMENT_TRIGGER=$( { awk -F, '{ print $11 }' <<<$(  echo ${i}  ) ; } )
+      NAME_MSG_TRIGGER=$( { awk -F, '{ print $12 }' <<<$(  echo ${i}  ) ; } )
+          SVRT_TRIGGER=$( { awk -F, '{ print $13 }' <<<$(  echo ${i}  ) ; } )
+#################################################################################################################
 
-        TEMPLATE_CREATE=$(
 
-                curl -s -H  'Content-Type: application/json-rpc' -d "
+
+                TEMPLATE_LOG=$(curl -s -H  'Content-Type: application/json-rpc' -d "
 {
+\"jsonrpc\": \"2.0\", \"method\": \"template.create\", \"params\": { \"host\": \""${TEMPLATE_NAME}"\", \"groups\": { \"groupid\": "${GROUP_ID}" }, \"tags\": [ { \"tag\": \""${TEMPLATE_NAME}"\", \"value\": \"EventViwer\" } ] }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+}" ${ZABBIX_API} )
 
- \"jsonrpc\": \"2.0\", \"method\": \"template.create\", \"params\": { \"host\": \"${TEMPLATE_NAME}\", \"groups\": { \"groupid\": ${GROUP_ID} }, \"tags\": [ { \"tag\": \"TESTE_TAG\", \"value\": \"DILAN_TAG\" } ] }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
-
-}" ${ZABBIX_API} } )
-
-
-        if egrep -io "invalid.*param" <<<$(echo ${TEMPLATE_CREATE}) > /dev/null
-
-                then
-                        echo ${TEMPLATE_CREATE} | jq .error.data |sed 's/^/ERR TEMPLATE: /g'|sed 's/\(\\\|\"\)//g' | tee -a log_file.txt
-                else
-                                echo ${TEMPLATE_CREATE} | jq .result[] | awk 'NR==2{print "TEMPLATE_ID:",$1}' | tee -a log_file.txt
-                                        echo TEMPLATE : "${TEMPLATE_NAME} SUCCESSFULLY"
-
-        fi
+        if grep -i invalid <<< "$TEMPLATE_LOG" >/dev/null  ; then { grep -Eo "(Template.*exists)" <<<$(echo -e ${TEMPLATE_LOG} ) |tee -a log_file.txt ; } ; else echo "TEMPLATE/OK : "${TEMPLATE_NAME}"" | tee -a log_file.txt ; fi
 
 ##### Cria os templates no respectivo grupo para futura criacao de itens no template (sera executado em loop for) #####
 
@@ -120,21 +112,38 @@ curl -s -H 'Content-Type: application/json-rpc' -d "
 
 ##### Cria os itens no respectivo host template X #####
 
-                ITEM_CREATE=$(curl -s -H 'Content-Type: application/json-rpc' -d "
+        ITEM_LOG=$(curl -s -H 'Content-Type: application/json-rpc' -d "
 {
 
-\"jsonrpc\": \"2.0\", \"method\": \"item.create\", \"params\": { \"name\": \"Log:("${EVENT_TYPE}") Regex:("${REGEX_EXP_FAIL}") Severity:("${SEVERITY_EXP_FAIL}") Application:("${SOURCE_EXP_FAIL}") EventID:("${EVENTID_EXP_FAIL}")\", \"key_\": \"eventlog["${EVENT_TYPE}",${REGEX_EXP},"${SEVERITY_EXP}","${SOURCE_EXP}","${EVENTID_EXP}",{\$EVENTVIEWER_MAXLINES},skip]\", \"description\": \""${STANDARD_DESCR}"\", \"hostid\": "${GET_TEMPLATE_ID}", \"type\": 7 , \"value_type\": 2, \"tags\": [ { \"tag\": \"EventViewer\", \"value\": \"${TAG_ZBX}\"} ], \"delay\": \"${UPDATE_INTERVAL}\" }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+\"jsonrpc\": \"2.0\", \"method\": \"item.create\", \"params\": { \"name\": \"Log:("${EVENT_TYPE}") Regex:("${REGEX_EXP_FAIL}") Severity:("${SEVERITY_EXP_FAIL}") Application:("${SOURCE_EXP_FAIL}") EventID:("${EVENTID_EXP_FAIL}")\", \"key_\": \"eventlog["${EVENT_TYPE}","${REGEX_EXP}","${SEVERITY_EXP}","${SOURCE_EXP}","${EVENTID_EXP}",{\$EVENTVIEWER_MAXLINES},skip]\", \"description\": \""${STANDARD_DESCR}"\", \"hostid\": "${GET_TEMPLATE_ID}", \"type\": 7 , \"value_type\": 2, \"tags\": [ { \"tag\": \"EventViewer\", \"value\": \""${TAG_ZBX}"\"} ], \"delay\": \""${UPDATE_INTERVAL}"\" }, \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
 
-}" ${ZABBIX_API})
+}" ${ZABBIX_API} )
+        if grep -i invalid <<< "$ITEM_LOG" >/dev/null  ; then { grep -Eo "already.*\." <<<$(echo  ${ITEM_LOG} ) | tee -a log_file.txt ; } ; else echo -ne "ITEM/OK: ID-> $(echo  ${ITEM_LOG} | jq .result | grep -Eo "[0-9]+"  )"  | tee -a log_file.txt ; fi
 
-        if egrep -io "invalid.*param" <<<$(echo ${ITEM_CREATE}) > /dev/null
-                then
-                        echo ${ITEM_CREATE} | jq .error.data |sed 's/^/ERR ITEM: /g'|sed 's/\(\\\|\"\)//g' | sed 's/exists on/exists on TEMPLATE/g' | tee -a log_file.txt
-                else
-                                echo ${ITEM_CREATE} | jq .result[] | awk 'NR==2{print "ITEM_ID:",$1}' | tee -a log_file.txt
-        fi
+##### Cria a trigger #####
+
+if [ "$COUNT_TRIGGER" == '*' ]
+
+        then
+curl -s -H 'Content-Type: application/json-rpc' -d "
+{
+
+ \"jsonrpc\": \"2.0\", \"method\": \"trigger.create\", \"params\": [ { \"description\": \""$(eval echo ${NAME_MSG_TRIGGER})"\", \"expression\": \"length(last(/${TEMPLATE_NAME}/eventlog[${EVENT_TYPE},${REGEX_EXP},${SEVERITY_EXP},${SOURCE_EXP},${EVENTID_EXP},{\$EVENTVIEWER_MAXLINES},skip]))>=1\", \"priority\" : ${SVRT_TRIGGER}, \"recovery_mode\" : 2, \"manual_close\" : 1, \"type\" : 0, \"comments\" : \"${COMMENT_TRIGGER}\", \"tags\": [ { \"tag\": \"EventViwer\", \"value\": \"${TAG_ZBX}\" } ] } ],\"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+}" ${ZABBIX_API} | echo -e $(grep -Eo "(Trigger|already.*\.)")
 
 
+        else
+
+curl -s -H 'Content-Type: application/json-rpc' -d " {
+
+ \"jsonrpc\": \"2.0\", \"method\": \"trigger.create\", \"params\": [ { \"description\": \""$(eval echo ${NAME_MSG_TRIGGER})"\", \"expression\": \"count(/${TEMPLATE_NAME}/eventlog[${EVENT_TYPE},${REGEX_EXP},${SEVERITY_EXP},${SOURCE_EXP},${EVENTID_EXP},{\$EVENTVIEWER_MAXLINES},skip],${ATIME_TRIGGER})${OPER_TRIGGER}${COUNT_TRIGGER}\", \"priority\" : ${SVRT_TRIGGER}, \"recovery_mode\" : 2, \"manual_close\" : 1, \"type\" : 0, \"comments\" : \"${COMMENT_TRIGGER}\", \"tags\": [ { \"tag\": \"EventViwer\", \"value\": \"${TAG_ZBX}\" } ] } ],\"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+}" ${ZABBIX_API} | echo -e $(grep -Eo "(Trigger|already.*\.)")
+
+
+fi
+##### Cria a trigger #####
 
 done
 
