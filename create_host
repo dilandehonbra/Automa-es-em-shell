@@ -1,0 +1,85 @@
+ZABBIX_USER="Admin"
+ZABBIX_PASS="zabbix"
+ZABBIX_API="http://192.168.1.151/zabbix/api_jsonrpc.php"
+ZABBIX_AUTH_TOKEN=$(curl -s -H  'Content-Type: application/json-rpc' -d "{\"jsonrpc\": \"2.0\",\"method\":\"user.login\",\"params\":{\"user\":\""${ZABBIX_USER}"\",\"password\":\""${ZABBIX_PASS}"\"},\"auth\": null,\"id\":0}" $ZABBIX_API |  jq -r .result)
+
+old_IFS=$IFS
+        IFS=$'\n'
+##############################################
+##############################################
+        for i in $(cat $1)
+
+                do
+#
+j=$(awk -F"," '{ print $1  }' <<<$(echo ${i}) )
+k=$(awk -F"," '{ print $2  }' <<<$(echo ${i}) )
+l=$(awk -F"," '{ print $3  }' <<<$(echo ${i}) )
+#
+##############################################
+#
+GET_HOST_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
+{\"jsonrpc\": \"2.0\",\"method\": \"host.get\",
+ \"params\": {\"output\" : [\"hostid\"],
+ \"search\": {\"host\": [\"${j}*\"]},
+ \"searchWildcardsEnabled\": \"1\" },
+ \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+}" ${ZABBIX_API} | jq .result[].hostid )
+##############################################
+#
+##############################################
+        if [ -z ${GET_HOST_ID} ]
+
+
+        then
+curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"host.create\",
+    \"params\": {
+        \"host\": \"${j}\",
+        \"interfaces\": [
+            {
+                \"type\": 2,
+                \"main\": 1,
+                \"useip\": 1,
+                \"ip\": \"${k}\",
+                \"dns\": \"dlsptrd.net\",
+                \"port\": \"161\"
+            }
+        ],
+        \"groups\": [
+            {
+                 \"groupid\": \"4\" },
+
+        {        \"groupid\": \"17\"
+
+           }
+        ],
+        \"templates\": [
+            {
+                \"templateid\": \"10275\"
+            }
+        ],
+        \"macros\": [
+            {
+                \"macro\": \"{\$SNMP_COMMUNITY}\",
+                \"value\": \"${l}\" },
+                { \"macro\": \"{\$DILAN}\",
+                \"value\": \"teste\"
+            }
+        ],
+        \"inventory_mode\": 0
+    },
+    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+    \"id\": 1
+}" ${ZABBIX_API}
+
+        else echo -e "\n${j} : HOST EXISTE"
+
+fi
+##############################################
+        done
+##############################################
+##############################################
+
+IFS=${old_IFS}
