@@ -1,0 +1,390 @@
+#### VARIAVEIS DE CONEXÃO COM A API DO ZABBIX ####
+
+ZABBIX_USER="Admin"
+ZABBIX_PASS="zabbix"
+ZABBIX_API="http://192.168.1.150/zabbix/api_jsonrpc.php"
+
+#### VARIAVEIS DE CONEXÃO COM A API DO ZABBIX ####
+
+        #################################### // ####################################
+
+#### VARIAVEIS DE NOMENCLATURA | GRUPO/TEMPLATE(PREFIXO)/LOG DE ERRO/LOG ####
+
+GROUP_NAME="Templates/Processos"
+TEMPLATE_PREFIX="tpt_processes"
+S_LOG_FILE="SUCESS_LOG_FILE"
+R_LOG_FILE="ERROR_LOG_FILE"
+
+#### VARIAVEIS DE NOMENCLATURA | GRUPO/TEMPLATE(PREFIXO)/LOG DE ERRO/LOG ####
+
+        #################################### // ####################################
+
+#### LEITURA DO LOOP OCORRER EM LINHA, DEFININDO DELIMITADOR DEFAULT COMO \n ####
+
+old_IFS=$IFS
+IFS=$'\n'
+
+#### LEITURA DO LOOP OCORRER EM LINHA, DEFININDO DELIMITADOR DEFAULT COMO \n ####
+
+        #################################### // ####################################
+
+#### DEFINE USUARIO E SENHA DEFAULT CASO NAO DEFINIDO ####
+
+: ${ZABBIX_USER:=Admin}
+: ${ZABBIX_PASS:=zabbix}
+
+#### DEFINE USUARIO E SENHA DEFAULT CASO NAO DEFINIDO ####
+
+        #################################### // ####################################
+
+#### REQUISICAO DO TOKEN DE AUTENTICACAO ####
+
+ZABBIX_AUTH_TOKEN=$( curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+        \"jsonrpc\": \"2.0\",
+        \"method\":
+        \"user.login\",\"params\":{
+                \"user\":\""${ZABBIX_USER}"\",
+                \"password\":\""${ZABBIX_PASS}"\"},
+                \"auth\": null,
+                \"id\":0
+        }" ${ZABBIX_API} \
+        | jq  -r 'if .result then .result else .error.data end')
+
+if [[ "${ZABBIX_AUTH_TOKEN}" =~ ".*Incorrect.*" ]]
+
+then
+        : ${ZABBIX_AUTH_TOKEN:="$(echo "\t\t###Cannot send request###\n\t\tURL : "${ZABBIX_API})"}
+        echo -e ${ZABBIX_AUTH_TOKEN}
+        exit 1
+fi
+
+#### REQUISICAO DO TOKEN DE AUTENTICACAO ####
+
+        #################################### // ####################################
+
+#### VALIDACAO DA EXISTENCIA DA VARIAVEL NOME DO GRUPO/ERRO POR CARACTER NAO ACEITO ####
+
+if [ -z "${GROUP_NAME}" ] ; then echo -e "HOST:${i}|MSG:GROUP NAME IS REQUIRED " | tee -a ${R_LOG_FILE}
+
+else
+ GRP_CREATE=$(curl -s -H  'Content-Type: application/json-rpc' -d "
+ {
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"hostgroup.create\",
+    \"params\": {
+        \"name\": \"${GROUP_NAME}\"
+        },\"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+}" ${ZABBIX_API} | jq  -r 'if .result.groupids then .result.groupids[] else .error.data end' )
+
+ echo -e "GROUP : ${GROUP_NAME}|MSG/GROUPID : ${GRP_CREATE}"  | tee -a ${S_LOG_FILE}
+
+#### VALIDACAO DA EXISTENCIA DA VARIAVEL NOME DO GRUPO/ERRO POR CARACTER NAO ACEITO ####
+
+
+        #################################### // ####################################
+
+#### INICIO DO LACO QUE PARA CRIACAO DO TEMPLATE/ITEN/TRIGGER ####\
+
+for i in $(echo "$(<"$1")")
+
+do
+
+#### TRATAMENTO DOS PARAMETROS QUE IRAO COMPOR A ESTRUTURA DO TEMPLATE ####
+
+HOST_NAME=$( awk -F, '{ print $1 }' <<<${i} )
+PROC_TEMPLATE_NAME=$( awk -F, '{ print $17 }' <<<${i}  | tr [A-Z] [a-z] |sed 's/-\| /_/g'  | sed -r 's/_{1,}/_/g')
+PROC_NAME=$( awk -F, '{ print $5 }' <<<${i} )
+PROC_CMNDLINE=$( awk -F, '{ print ",,,"$5 }' <<<${i} )
+DEFINE_PROC=$( awk -F, '{ print $7 }' <<<${i} )
+NUMBER_LINE=$(awk -F , '{ print $16 }' <<<${i})
+TAG_ZBX=$( awk -F, '{ print $2 }' <<<${i} )
+TEMPLATE_NAME="${TEMPLATE_PREFIX}_${PROC_TEMPLATE_NAME}_1"
+ITEM_NAME="${TEMPLATE_PREFIX}_${PROC_NAME}"
+OPER_TRIGGER=$( awk -F, '{ print $13 }' <<<${i} )
+SVRT_TRIGGER=$( awk -F, '{ print $9 }' <<<${i} | sed 's/.*://g')
+COMMENT_TRIGGER=$( awk -F, '{ print $11 }' <<<${i} )
+COUNT_TRIGGER=$( awk -F, '{ print $14 }' <<<${i} )
+
+#### TRATAMENTO DOS PARAMETROS QUE IRAO COMPOR A ESTRUTURA DO TEMPLATE ####
+
+#### VALIDACAO SE O PROCESSO E NOME OU CMNDLINE ####
+
+if [ ${DEFINE_PROC} != "name" ]
+
+then
+
+        PROC_NAME=${PROC_CMNDLINE}
+
+fi
+
+#### VALIDACAO SE O PROCESSO E NOME OU CMNDLINE ####
+
+#### VALIDACAO DA CRIACAO DO GRUPO DO TEMPLATE ####
+
+GROUP_ID=$(
+        curl -s -H  'Content-Type: application/json-rpc' -d "
+        {
+
+                \"jsonrpc\": \"2.0\", \"method\": \"hostgroup.get\",
+                \"params\": { \"output\": \"groupids\",
+                \"filter\": { \"name\": [\"${GROUP_NAME}\"]}},
+                \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+        }" ${ZABBIX_API}| jq  .result[].groupid  )
+
+if [[ "${GRP_CREATE}" =~ [0-9]\"$ ]]
+
+        then GRP_CREATE=${GRP_CREATE}
+
+else
+
+        GRP_CREATE=""
+
+        : ${GRP_CREATE:=${GROUP_ID}}
+fi
+
+#### VALIDACAO DA CRIACAO DO GRUPO DO TEMPLATE ####
+
+        #################################### // ####################################
+
+#### FUNCAO DE VALIDACAO HASH MD5SUM, INTUITO DEFINIR SE O TEMPLATE JA EXISTE COM OS PARAMETROS IDENTICOS ####
+
+valida_sum () {
+
+        echo $(echo "${PROC_TEMPLATE_NAME} ${PROC_NAME} ${PROC_CMNDLINE} ${DEFINE_PROC} ${TAG_ZBX} ${OPER_TRIGGER} ${SVRT_TRIGGER} ${COUNT_TRIGGER}" | md5sum)
+
+}
+
+#### FUNCAO DE VALIDACAO HASH MD5SUM, INTUITO DEFINIR SE O TEMPLATE JA EXISTE COM OS PARAMETROS IDENTICOS ####
+
+        #################################### // ####################################
+
+#### CRIACAO DO TEMPLATE  COM TAG DA FUNCAO valida_sum ####
+crt_tpt () {
+       curl -s -H  'Content-Type: application/json-rpc' -d "
+       {
+        \"jsonrpc\": \"2.0\",
+        \"method\": \"template.create\",
+        \"params\": { \"host\": \"${TEMPLATE_NAME}\",
+        \"groups\": { \"groupid\": ${GRP_CREATE} },
+        \"tags\": [ { \"tag\": \"tag_tpt_pcp\",
+        \"value\": \"${TAG_ZBX}\" }, {
+                \"tag\": \"md5\",
+                \"value\": \"$(valida_sum)\" }
+                ] },
+                \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+        }" ${ZABBIX_API}
+}
+
+#### CRIACAO DO TEMPLATE  COM TAG DA FUNCAO valida_sum ####
+
+        #################################### // ####################################
+
+#### TRATAMENTO DO NOME DO TEMPLATE PARA VALIDACAO DA EXISTENCIA EM MASSA ####
+
+PARSE_NAME_TPT=$( sed -r 's/_[0-9]+$//g' <<<${TEMPLATE_NAME} )
+
+#### TRATAMENTO DO NOME DO TEMPLATE PARA VALIDACAO DA EXISTENCIA EM MASSA ####
+
+        #################################### // ####################################
+
+#### VALIDACAO DA EXISTENCIA DE 2 OU MAIS TEMPLATES ####
+
+tpt_msum_val () {
+
+        curl -s -H  'Content-Type: application/json-rpc' -d "{
+                \"jsonrpc\": \"2.0\",\"method\": \"template.get\",
+                \"params\": {\"output\" : [\"name\"],
+                \"selectTags\": \"extend\",
+                \"search\": {\"host\": [\"${PARSE_NAME_TPT}*\"]},
+                \"searchWildcardsEnabled\": \"1\" },
+                \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+        }" ${ZABBIX_API}
+}
+
+#### VALIDACAO DA EXISTENCIA DE 2 OU MAIS TEMPLATES ####
+
+        #################################### // ####################################
+
+#### CRIACAO DO TEMPLATE, ESSE TEMPLATE E O PRIMEIRO CRIADO COM SUFICO ( _1 ) ####
+
+TEMPLATE_CREATION=$( crt_tpt | jq 'if .result.templateids then .result[][] else .error.data end' )
+
+ID_TPT="ID/DUP"
+
+if [[ "${TEMPLATE_CREATION}" =~ .*already.* ]]
+
+then
+
+        echo  " TEMPLATE : ${TEMPLATE_NAME} | ${ID_TPT} : ${TEMPLATE_CREATION} " | tee -a ${R_LOG_FILE}
+
+else
+
+        echo  " TEMPLATE : ${TEMPLATE_NAME} | ${ID_TPT} : ${TEMPLATE_CREATION} " | tee -a ${S_LOG_FILE}
+
+fi
+#### CRIACAO DO TEMPLATE, ESSE TEMPLATE E O PRIMEIRO CRIADO COM SUFICO ( _1 ) ####
+
+        #################################### // ####################################
+
+#### CRIACAO DO TEMPLATE CASO EXISTA ( _1 ) E O HASH MD5 FOR DIFERENTE CRIA OUTRO COM SUFIXO ( _2 ) ####
+
+COUNT_MD=$(tpt_msum_val | jq .result[].tags | grep "value.* -\"" | awk -F"\"" '{print $4}' | grep $(valida_sum) | sort | uniq )
+
+
+if [[ "${TEMPLATE_CREATION}" =~ already ]] && [[ "${COUNT_MD}" != $(valida_sum) ]]
+
+then
+
+        COUNT_TPT=$(tpt_msum_val | jq .result[].name | wc -l)
+        TEMPLATE_NAME=${PARSE_NAME_TPT}_$(echo $((${COUNT_TPT}+1)))
+        TEMPLATE_CREATION=$( crt_tpt | jq 'if .result.templateids then .result[][] else .error.data end' )
+        echo  " TEMPLATE : ${TEMPLATE_NAME} | ID : ${TEMPLATE_CREATION} " | tee -a ${S_LOG_FILE}
+
+fi
+
+#### CRIACAO DO TEMPLATE CASO EXISTA ( _1 ) E O HASH MD5 FOR DIFERENTE CRIA OUTRO COM SUFIXO ( _2 ) ####
+
+
+        #################################### // ####################################
+
+#### CRIACAO DO ITEM ####
+CREATE_ITEM=$(
+        curl -s -H  'Content-Type: application/json-rpc' -d "
+        {
+                \"jsonrpc\": \"2.0\",
+                \"method\": \"item.create\",
+                \"params\": {
+                       \"name\": \"${ITEM_NAME}\",
+                       \"key_\": \"proc.num[${PROC_NAME}]\",
+                       \"description\": \"ITEM_TESTE\",
+                       \"history\" : \"30d\",
+                       \"trends\" : \"0\",
+                       \"hostid\": ${TEMPLATE_CREATION},
+                       \"type\": 7 ,
+                       \"value_type\": 3,
+                       \"tags\": [ { \"tag\": \"tag_item_type\", \"value\": \"processo\"} ],
+                       \"delay\": \"5m\" },
+                       \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+               }" ${ZABBIX_API} | jq 'if .result.itemids then .result[][] else .error.data end')
+
+if [[ ${CREATE_ITEM} =~ \"[0-9]+\"$ ]]
+        then echo -e "  ITEM : ${TEMPLATE_NAME} | ITEM_ID : ${CREATE_ITEM} " | tee -a ${S_LOG_FILE}
+
+else echo -e "  ITEM_NOT_ADDED : ${TEMPLATE_NAME} | ERROR_MSG : ${CREATE_ITEM} " | tee -a ${R_LOG_FILE}
+
+fi
+
+#### CRIACAO DO ITEM ####
+
+        #################################### // ####################################
+
+#### CRIACAO DA TRIGGER ###
+
+CREATE_TRIGGER=$(curl -s -H 'Content-Type: application/json-rpc' -d " {
+       \"jsonrpc\": \"2.0\",
+       \"method\": \"trigger.create\",
+       \"params\": [
+       {
+               \"description\" : \"[Processo] Nome: ( "$(sed 's/^,,,//g' <<<${PROC_NAME})" ) | Status: {ITEM.LASTVALUE1}\",
+               \"expression\" : \"last(/${TEMPLATE_NAME}/proc.num[${PROC_NAME}])${OPER_TRIGGER}${COUNT_TRIGGER}\",
+               \"priority\" : \"${SVRT_TRIGGER}\",
+               \"recovery_mode\" : 2,
+               \"manual_close\" : 1,
+               \"type\" : 0,
+               \"comments\" : \""$(eval echo ${COMMENT_TRIGGER} )"\",
+               \"tags\": [
+               {
+                \"tag\":
+                \"integ_itsm_grp\",
+                \"value\": \"${TAG_ZBX}\" },
+                {
+                        \"tag\":
+                        \"integ_itsm_src\",
+                        \"value\": \"local\" },
+                        {
+                                \"tag\":
+                                \"integ_itsm_type\",
+                                \"value\": \"processo\" }
+
+                                ]
+                        }
+                        ],
+                        \"auth\": \"${ZABBIX_AUTH_TOKEN}\",\"id\": 1
+
+                }" ${ZABBIX_API} | jq 'if .result.triggerids then .result[][] else .error.data end' )
+
+if [[ "${CREATE_TRIGGER}" =~ [0-9]\"$ ]]
+
+    then echo -e "   TRIGGER : ${TEMPLATE_NAME} | TRIGGER_ID : ${CREATE_TRIGGER} " | tee -a ${S_LOG_FILE}
+
+else echo -e "   TRIGGER_NOT_ADDED_TO : ${TEMPLATE_NAME} | ERROR_MSG : ${CREATE_TRIGGER} " | tee -a ${R_LOG_FILE}
+
+fi
+
+#### CRIACAO DA TRIGGER ###
+
+GET_HOST_ID=$(curl -s -H  'Content-Type: application/json-rpc' -d "
+{
+    \"jsonrpc\": \"2.0\",
+    \"method\": \"host.get\",
+    \"params\": {
+        \"output\" : [\"hostid\"],
+        \"filter\": {
+            \"host\": [
+            \"${HOST_NAME}\"
+            ]
+    }
+    },
+    \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+    \"id\": 1
+}" ${ZABBIX_API} | jq .result[].hostid
+)
+
+
+if [ -z ${GET_HOST_ID} ]
+
+then
+
+        echo "HOST : ${HOST_NAME} NOT FOUND"
+
+else
+
+        AD_HOST_TPT=$(curl -s -H 'Content-Type: application/json-rpc' -d "
+
+        {
+            \"jsonrpc\": \"2.0\",
+            \"method\": \"host.massadd\",
+            \"params\": {
+                \"hosts\": [
+                {
+                        \"hostid\": ${GET_HOST_ID}
+                }
+                ],
+                \"templates\": [
+                {
+                        \"templateid\": "${TEMPLATE_CREATION}"
+                }
+                ]
+                },
+                \"auth\": \"${ZABBIX_AUTH_TOKEN}\",
+                \"id\": 1
+        }" ${ZABBIX_API} | jq 'if .result.hostids then .result[][] else .error.data end')
+
+        if [[ "${AD_HOST_TPT}" =~ .*exist.* ]]
+
+                then echo "     HOST_TEMPLATE : ${TEMPLATE_NAME} | ALREADY EXIST ON ${HOST_NAME}" | tee -a ${R_LOG_FILE}
+
+else echo "    HOST_TEMPLATE : ${TEMPLATE_NAME} | ADDED TO ${HOST_NAME}" | tee -a ${S_LOG_FILE}
+
+fi
+fi
+
+done
+
+#### FIM DO LACO QUE PARA CRIACAO DO TEMPLATE/ITEN/TRIGGER ####\
+
+fi
+
+IFS=${old_IFS}
