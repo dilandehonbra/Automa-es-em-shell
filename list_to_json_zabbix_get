@@ -1,0 +1,7 @@
+OUTPUT=$(zabbix_get -s $1 -k system.run["$2"])
+
+OB_NAME=$3
+
+: ${OB_NAME:="RETURN"}
+
+jq -Rn '{"data": [inputs | {"{#'${OB_NAME}'}": .}]}' <<<${OUTPUT}
